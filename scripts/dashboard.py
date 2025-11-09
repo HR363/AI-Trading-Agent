@@ -5,11 +5,16 @@ Quick script to check your account balance, open positions, and trading status.
 """
 
 import asyncio
+import sys
+from pathlib import Path
 from datetime import datetime
 from loguru import logger
 
-from config import Config
-from broker_interface import get_broker
+# Add parent directory to path to import from brokers and config
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from config.config import Config
+from brokers.broker_interface import get_broker
 
 async def show_dashboard():
     """Display portfolio dashboard"""

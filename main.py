@@ -21,8 +21,8 @@ import asyncio
 import sys
 from loguru import logger
 
-from config import Config
-from telegram_monitor import TelegramMonitor
+from config.config import Config
+from utils.telegram_monitor import TelegramMonitor
 
 
 def print_banner():

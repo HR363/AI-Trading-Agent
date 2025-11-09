@@ -2,9 +2,9 @@ from typing import Dict, Optional, List
 from datetime import datetime, timedelta
 from loguru import logger
 
-from models import Position, TradingSignal, SignalType, PositionStatus, TradeExecution
-from broker_interface import BrokerInterface
-from config import Config
+from config.models import Position, TradingSignal, SignalType, PositionStatus, TradeExecution
+from brokers.broker_interface import BrokerInterface
+from config.config import Config
 
 class PositionManager:
     """Manage open positions and risk"""

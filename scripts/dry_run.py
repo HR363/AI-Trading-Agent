@@ -8,12 +8,17 @@ Perfect for testing and validating signal parsing before going live.
 """
 
 import asyncio
+import sys
+from pathlib import Path
 from telethon import TelegramClient, events
 from loguru import logger
 
-from config import Config
-from signal_parser import SignalParser
-from models import SignalType
+# Add parent directory to path to import from config and utils
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from config.config import Config
+from utils.signal_parser import SignalParser
+from config.models import SignalType
 
 class DryRunMonitor:
     """Monitor Telegram channel in dry-run mode"""

@@ -5,8 +5,14 @@ This script lets you test how the agent interprets different message formats.
 """
 
 import asyncio
-from signal_parser import SignalParser
-from config import Config
+import sys
+from pathlib import Path
+
+# Add parent directory to path to import from utils and config
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from utils.signal_parser import SignalParser
+from config.config import Config
 from loguru import logger
 
 # Example messages to test

@@ -2,10 +2,11 @@ import asyncio
 from telethon import TelegramClient, events
 from loguru import logger
 
-from config import Config
-from signal_parser import SignalParser
-from position_manager import PositionManager
-from broker_interface import get_broker
+from config.config import Config
+from config.models import SignalType
+from utils.signal_parser import SignalParser
+from utils.position_manager import PositionManager
+from brokers.broker_interface import get_broker
 
 class TelegramMonitor:
     """Monitor Telegram channel for trading signals"""

@@ -4,8 +4,8 @@ from typing import Optional
 from openai import OpenAI
 from loguru import logger
 
-from models import TradingSignal, SignalType, OrderSide
-from config import Config
+from config.models import TradingSignal, SignalType, OrderSide
+from config.config import Config
 
 class SignalParser:
     """Parse trading signals from Telegram messages using AI"""

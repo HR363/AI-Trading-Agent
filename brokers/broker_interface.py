@@ -2,8 +2,8 @@ from abc import ABC, abstractmethod
 from typing import Optional, List
 from loguru import logger
 
-from models import TradingSignal, Position, TradeExecution, OrderSide, PositionStatus
-from config import Config
+from config.models import TradingSignal, Position, TradeExecution, OrderSide, PositionStatus
+from config.config import Config
 
 class BrokerInterface(ABC):
     """Abstract base class for broker integrations"""
@@ -339,5 +339,16 @@ def get_broker() -> BrokerInterface:
         return AlpacaBroker()
     elif Config.BROKER == "binance":
         return BinanceBroker()
+    elif Config.BROKER == "mt5":
+        from brokers.mt5_broker import MT5Broker
+        broker = MT5Broker()
+        # Connect to MT5
+        if not broker.connect(
+            account=Config.MT5_ACCOUNT,
+            password=Config.MT5_PASSWORD,
+            server=Config.MT5_SERVER
+        ):
+            raise ConnectionError("Failed to connect to MT5")
+        return broker
     else:
         raise ValueError(f"Unsupported broker: {Config.BROKER}")
