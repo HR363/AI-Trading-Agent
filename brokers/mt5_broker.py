@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 from datetime import datetime
 from loguru import logger
 
-from config.models import Position, TradeExecution, OrderSide, PositionStatus
+from config.models import Position, TradeExecution, OrderSide, PositionStatus, TradingSignal
 from brokers.broker_interface import BrokerInterface
 from config.config import Config
 
@@ -54,6 +54,13 @@ class MT5Broker(BrokerInterface):
             logger.info(f"✅ Connected to MT5 - Balance: ${self.account_info.balance:.2f}")
             logger.info(f"   Account: {account} | Server: {server}")
             logger.info(f"   Leverage: 1:{self.account_info.leverage}")
+            
+            # Check if autotrading is enabled
+            terminal_info = mt5.terminal_info()
+            if terminal_info and not terminal_info.trade_allowed:
+                logger.warning("⚠️  AutoTrading is DISABLED in MT5!")
+                logger.warning("   To enable: Tools → Options → Expert Advisors → Check 'Allow automated trading'")
+                logger.warning("   Or click the AutoTrading button in MT5 toolbar (should be green)")
             
             return True
             
@@ -134,40 +141,39 @@ class MT5Broker(BrokerInterface):
             logger.exception(f"Error getting current price for {symbol}: {e}")
             return None
     
-    async def execute_trade(self, trade: TradeExecution) -> bool:
+    async def execute_trade(self, signal: TradingSignal, position_size: float) -> TradeExecution:
         """Execute a trade on MT5"""
         try:
             if not self.connected:
                 logger.error("Not connected to MT5")
-                return False
+                return TradeExecution(success=False, error="Not connected to MT5")
             
-            symbol = self._normalize_symbol(trade.symbol)
+            symbol = self._normalize_symbol(signal.symbol)
             
             # Check if symbol exists and is tradeable
             symbol_info = mt5.symbol_info(symbol)
             if symbol_info is None:
                 logger.error(f"Symbol {symbol} not found")
-                return False
+                return TradeExecution(success=False, error=f"Symbol {symbol} not found")
             
             if not symbol_info.visible:
                 # Try to make symbol visible
                 if not mt5.symbol_select(symbol, True):
                     logger.error(f"Failed to select symbol {symbol}")
-                    return False
+                    return TradeExecution(success=False, error=f"Failed to select symbol {symbol}")
             
             # Get current price
             tick = mt5.symbol_info_tick(symbol)
             if tick is None:
                 logger.error(f"Failed to get tick for {symbol}")
-                return False
+                return TradeExecution(success=False, error=f"Failed to get tick for {symbol}")
             
             # Determine order type
-            order_type = mt5.ORDER_TYPE_BUY if trade.side == OrderSide.BUY else mt5.ORDER_TYPE_SELL
-            price = tick.ask if trade.side == OrderSide.BUY else tick.bid
+            order_type = mt5.ORDER_TYPE_BUY if signal.side == OrderSide.BUY else mt5.ORDER_TYPE_SELL
+            price = tick.ask if signal.side == OrderSide.BUY else tick.bid
             
-            # Calculate lot size (volume)
-            # MT5 uses lots, need to convert from quantity
-            lot_size = self._calculate_lot_size(symbol, trade.quantity, price)
+            # Calculate lot size from position size in dollars
+            lot_size = self._calculate_lot_size_from_value(symbol, position_size, price)
             
             # Prepare trade request
             request = {
@@ -178,40 +184,60 @@ class MT5Broker(BrokerInterface):
                 "price": price,
                 "deviation": 20,  # Maximum price deviation
                 "magic": 234000,  # Magic number for our bot
-                "comment": f"AI Agent - {trade.signal_type}",
+                "comment": f"AI Agent - {signal.signal_type}",
                 "type_time": mt5.ORDER_TIME_GTC,  # Good till cancelled
                 "type_filling": mt5.ORDER_FILLING_IOC,  # Immediate or cancel
             }
             
             # Add stop loss if specified
-            if trade.stop_loss:
-                request["sl"] = trade.stop_loss
+            if signal.stop_loss:
+                request["sl"] = signal.stop_loss
             
             # Add take profit if specified
-            if trade.take_profit:
-                request["tp"] = trade.take_profit
+            if signal.take_profit_levels and len(signal.take_profit_levels) > 0:
+                request["tp"] = signal.take_profit_levels[0]
             
             # Send order
-            logger.info(f"Sending MT5 order: {trade.side} {lot_size} lots of {symbol} @ {price}")
+            logger.info(f"Sending MT5 order: {signal.side} {lot_size} lots of {symbol} @ {price}")
             result = mt5.order_send(request)
             
             if result is None:
-                logger.error(f"Order send failed: {mt5.last_error()}")
-                return False
+                error_msg = f"Order send failed: {mt5.last_error()}"
+                logger.error(error_msg)
+                return TradeExecution(success=False, error=error_msg)
             
             if result.retcode != mt5.TRADE_RETCODE_DONE:
-                logger.error(f"Order failed with retcode: {result.retcode} - {result.comment}")
-                return False
+                error_msg = f"Order failed with retcode: {result.retcode} - {result.comment}"
+                logger.error(error_msg)
+                return TradeExecution(success=False, error=error_msg)
             
             logger.info(f"✅ Order executed successfully!")
             logger.info(f"   Order: {result.order} | Deal: {result.deal}")
             logger.info(f"   Price: {result.price} | Volume: {result.volume}")
             
-            return True
+            # Create position object
+            position = Position(
+                id=str(result.order),
+                symbol=symbol,
+                side=signal.side,
+                entry_price=result.price,
+                quantity=result.volume,
+                stop_loss=signal.stop_loss,
+                take_profit_levels=signal.take_profit_levels,
+                status=PositionStatus.OPEN
+            )
+            
+            return TradeExecution(
+                success=True,
+                position=position,
+                order_id=str(result.order),
+                executed_price=result.price,
+                executed_quantity=result.volume
+            )
             
         except Exception as e:
             logger.exception(f"Error executing trade: {e}")
-            return False
+            return TradeExecution(success=False, error=str(e))
     
     async def get_open_positions(self) -> List[Position]:
         """Get all open positions"""
@@ -363,16 +389,11 @@ class MT5Broker(BrokerInterface):
         # Remove slashes and spaces
         normalized = symbol.replace("/", "").replace(" ", "").upper()
         
-        # Some common conversions
-        conversions = {
-            "XAUUSD": "GOLD",  # Gold
-            "XAGUSD": "SILVER",  # Silver
-            "US30": "US30",  # Dow Jones
-            "NAS100": "NAS100",  # NASDAQ
-            "SPX500": "SPX500",  # S&P 500
-        }
+        # Keep standard symbols as-is, they work directly in MT5
+        # XAUUSD is the correct symbol for gold spot
+        # XAGUSD is the correct symbol for silver spot
         
-        return conversions.get(normalized, normalized)
+        return normalized
     
     def _denormalize_symbol(self, mt5_symbol: str) -> str:
         """Convert MT5 symbol back to standard format"""
@@ -380,6 +401,44 @@ class MT5Broker(BrokerInterface):
         if len(mt5_symbol) == 6 and mt5_symbol.isalpha():
             return f"{mt5_symbol[:3]}/{mt5_symbol[3:]}"
         return mt5_symbol
+    
+    def _calculate_lot_size_from_value(self, symbol: str, position_value_usd: float, current_price: float) -> float:
+        """Calculate lot size from position value in USD.
+        
+        Args:
+            symbol: Trading symbol
+            position_value_usd: Desired position size in USD
+            current_price: Current market price
+            
+        Returns:
+            Lot size (volume) for MT5
+        """
+        try:
+            symbol_info = mt5.symbol_info(symbol)
+            if symbol_info is None:
+                logger.error(f"Symbol {symbol} not found")
+                return 0.01  # Minimum lot size
+            
+            # For XAUUSD: 1 lot = 100 oz
+            # position_value = lot_size * contract_size * price
+            # lot_size = position_value / (contract_size * price)
+            
+            contract_size = symbol_info.trade_contract_size
+            lot_size = position_value_usd / (contract_size * current_price)
+            
+            # Round to allowed step
+            volume_step = symbol_info.volume_step
+            lot_size = round(lot_size / volume_step) * volume_step
+            
+            # Ensure within min/max limits
+            lot_size = max(symbol_info.volume_min, min(lot_size, symbol_info.volume_max))
+            
+            logger.info(f"Position size calculation: ${position_value_usd} @ {current_price} = {lot_size} lots")
+            return lot_size
+            
+        except Exception as e:
+            logger.exception(f"Error calculating lot size: {e}")
+            return 0.01  # Return minimum lot size as fallback
     
     def _calculate_lot_size(self, symbol: str, quantity: float, price: float) -> float:
         """
