@@ -83,35 +83,46 @@ class AIClient:
 
     def _chat_gemini(self, messages: List[Dict[str, str]], model: Optional[str], options: Dict[str, Any]) -> str:
         genai = self._genai
-        model = model or Config.GEMINI_MODEL
+        model_name = model or Config.GEMINI_MODEL
         try:
-            # google-generativeai expects messages as list of dict with 'role' and 'content'
-            resp = genai.chat.create(model=model, messages=messages)
-
-            # Try multiple strategies to extract text from response (works across versions)
-            # 1. resp.last
-            if hasattr(resp, "last") and resp.last:
-                return str(resp.last)
-
-            # 2. resp.candidates -> candidate.content or candidate["content"]
-            if hasattr(resp, "candidates") and resp.candidates:
-                candidate = resp.candidates[0]
-                if hasattr(candidate, "content"):
-                    return candidate.content
-                if isinstance(candidate, dict):
-                    return candidate.get("content") or candidate.get("message", {}).get("content", "")
-
-            # 3. resp.output or resp["output"]
-            if hasattr(resp, "output"):
-                out = resp.output
-                # If output has 'text' or 'content'
-                if isinstance(out, str):
-                    return out
-                if isinstance(out, dict):
-                    return out.get("text") or out.get("content", "")
-
-            # Fallback to string repr
-            return str(resp)
+            # Convert messages to Gemini format
+            # Gemini uses GenerativeModel with generate_content
+            gemini_model = genai.GenerativeModel(model_name)
+            
+            # Build prompt from messages (combine system and user messages)
+            prompt_parts = []
+            for msg in messages:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                if role == "system":
+                    prompt_parts.append(f"Instructions: {content}")
+                elif role == "user":
+                    prompt_parts.append(content)
+                elif role == "assistant":
+                    prompt_parts.append(f"Assistant: {content}")
+            
+            full_prompt = "\n\n".join(prompt_parts)
+            
+            # Generate content
+            response = gemini_model.generate_content(
+                full_prompt,
+                generation_config={
+                    "temperature": options.get("temperature", 0.1),
+                    "max_output_tokens": options.get("max_tokens", 500),
+                }
+            )
+            
+            # Extract text from response
+            if hasattr(response, "text"):
+                return response.text
+            elif hasattr(response, "candidates") and response.candidates:
+                candidate = response.candidates[0]
+                if hasattr(candidate, "content") and hasattr(candidate.content, "parts"):
+                    return "".join(part.text for part in candidate.content.parts if hasattr(part, "text"))
+            
+            # Fallback
+            return str(response)
+            
         except Exception as e:
             logger.exception(f"Gemini chat error: {e}")
             raise
