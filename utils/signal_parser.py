@@ -14,37 +14,51 @@ class SignalParser:
         # AI client (OpenAI or Gemini) - lazy singleton
         self.client = get_ai_client()
         
-        self.system_prompt = """You are an expert trading signal parser. Your job is to extract structured trading information from informal trading messages.
+        self.system_prompt = """You are an expert trading signal parser for SNIPE TRADING PRO channel. Your job is to extract structured trading information from trading messages.
 
-The user will send you messages from a trading community that may contain:
-1. Entry signals: "I entered BTCUSDT long at 45000" or "Getting ready for entry around 45000-45200"
-2. Partial profit taking: "Took 50% off at 46000" or "Closing half position"
-3. Stop loss moves: "Moving SL to breakeven" or "SL moved to entry"
-4. Position updates: "Price approaching entry zone"
+IMPORTANT TERMINOLOGY:
+- "TRIMMING" or "trim" = Taking PARTIAL profits (not closing entire position)
+- "RISK FREE" or "protect positions" = Move stop loss to BREAKEVEN (entry price)
+- "GOLD" = XAUUSD symbol
+- "BUYING" = Long/Buy position
+- "SELLING" = Short/Sell position
+- "RR" = Risk-Reward ratio (e.g., "1:2 RR" means 2x profit vs risk)
+
+Message types you'll see:
+1. Entry signals: "BUYING GOLD @ MARKET ENTRY 3989.75 SL 3987.2"
+2. Trim/Partial signals: "Im trimming some. Over 1:2 RR" or "You may trim"
+3. Stop loss to breakeven: "risk free" or "protect positions" or "1:2 RR protect positions"
+4. Alerts: "Approaching zone!!" or "PRICE APPROACHING!!"
+5. Progress updates: "100 pips" or "Booom!!!" or "Running 1:2 almost"
 
 Extract and return ONLY a valid JSON object with these fields:
 {
     "signal_type": "entry|entry_alert|partial|stop_loss_move|close|unknown",
-    "symbol": "BTCUSDT" or null,
+    "symbol": "XAUUSD" (convert GOLD to XAUUSD) or null,
     "side": "buy|sell" or null,
-    "entry_price": 45000.0 or null,
-    "entry_zone_low": 45000.0 or null,
-    "entry_zone_high": 45200.0 or null,
-    "stop_loss": 44000.0 or null,
-    "take_profit_levels": [46000, 47000] or [],
+    "entry_price": 3989.75 or null,
+    "entry_zone_low": null,
+    "entry_zone_high": null,
+    "stop_loss": 3987.2 or null,
+    "take_profit_levels": [],
     "partial_percentage": 50.0 or null,
     "confidence": 0.95,
-    "metadata": {"notes": "any additional context"}
+    "metadata": {"notes": "any additional context like RR ratio"}
 }
 
 Rules:
-- For "long" positions, side is "buy". For "short" positions, side is "sell"
-- If message says "getting ready" or "approaching", use signal_type "entry_alert"
-- If message says "entered" or "taking position", use signal_type "entry"
-- Confidence should be 0.0-1.0 based on clarity of the message
-- Extract all numerical values (prices, percentages)
-- If stop loss is "breakeven" or "BE", set it to entry_price
-- Common symbols: BTC, ETH, AAPL, TSLA, etc. Add common suffixes like USDT, USD, /USD
+- "BUYING GOLD" → side="buy", symbol="XAUUSD"
+- "SELLING GOLD" → side="sell", symbol="XAUUSD"
+- "GOLD" alone → symbol="XAUUSD"
+- "ENTRY 3989.75" → entry_price=3989.75, signal_type="entry"
+- "SL 3987.2" → stop_loss=3987.2
+- "trimming" or "trim" → signal_type="partial", partial_percentage=50.0 (default)
+- "risk free" or "protect positions" → signal_type="stop_loss_move" (move SL to breakeven)
+- "approaching" or "looking at" → signal_type="entry_alert"
+- "1:2 RR", "1:3 RR" etc → add to metadata as {"rr_ratio": "1:2"}
+- Confidence 0.9-1.0 for clear entry signals with price and SL
+- Confidence 0.7-0.9 for partial/trim signals
+- Confidence 0.5-0.7 for alerts/approaching
 - Return ONLY the JSON object, no markdown formatting or code blocks"""
 
     async def parse_message(self, message: str) -> Optional[TradingSignal]:
@@ -99,10 +113,12 @@ Rules:
         """Quick check if message might contain trading signal"""
         # Keywords that indicate trading activity
         keywords = [
-            'entry', 'entered', 'long', 'short', 'buy', 'sell',
+            'entry', 'entered', 'long', 'short', 'buy', 'sell', 'buying', 'selling',
             'partial', 'tp', 'take profit', 'stop loss', 'sl',
             'breakeven', 'be', 'close', 'closed', 'approaching',
-            'getting ready', 'zone', 'position'
+            'getting ready', 'zone', 'position', 'gold', 'xauusd',
+            'trimming', 'trim', 'risk free', 'protect', 'rr', 'pips',
+            'market', 'booom'
         ]
         
         message_lower = message.lower()
