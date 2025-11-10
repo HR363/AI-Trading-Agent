@@ -12,8 +12,10 @@ class TelegramMonitor:
     """Monitor Telegram channel for trading signals"""
     
     def __init__(self):
+        # Use unique session name to avoid database locks
+        session_name = f'trading_agent_{Config.TELEGRAM_CHANNEL_ID}'
         self.client = TelegramClient(
-            'trading_agent_session',
+            session_name,
             Config.TELEGRAM_API_ID,
             Config.TELEGRAM_API_HASH
         )
@@ -28,23 +30,44 @@ class TelegramMonitor:
         """Start monitoring Telegram channel"""
         logger.info("Starting Telegram monitor...")
         
+        # Connect to broker first
+        logger.info(f"Connecting to {Config.BROKER.upper()} broker...")
+        broker_connected = await self.broker.connect()
+        if not broker_connected:
+            logger.error("❌ Failed to connect to broker")
+            return
+        logger.success(f"✅ Connected to {Config.BROKER.upper()} broker")
+        
         # Connect to Telegram
         await self.client.start(phone=Config.TELEGRAM_PHONE)
         logger.success("Connected to Telegram")
         
         # Verify channel access
         try:
-            channel = await self.client.get_entity(Config.TELEGRAM_CHANNEL_ID)
-            logger.info(f"Monitoring channel: {channel.title}")
+            entity = await self.client.get_entity(Config.TELEGRAM_CHANNEL_ID)
+            if hasattr(entity, 'title'):
+                logger.info(f"Monitoring channel: {entity.title}")
+            elif hasattr(entity, 'first_name'):
+                logger.info(f"Monitoring user: {entity.first_name} (Saved Messages)")
+            else:
+                logger.info(f"Monitoring entity ID: {Config.TELEGRAM_CHANNEL_ID}")
         except Exception as e:
             logger.error(f"Could not access channel: {e}")
             logger.error(f"Channel ID: {Config.TELEGRAM_CHANNEL_ID}")
             return
         
         # Register event handler
-        @self.client.on(events.NewMessage(chats=Config.TELEGRAM_CHANNEL_ID))
-        async def handle_message(event):
-            await self._handle_new_message(event)
+        # For "me" (Saved Messages), we need to listen to outgoing messages too
+        if Config.TELEGRAM_CHANNEL_ID == "me":
+            @self.client.on(events.NewMessage(chats=Config.TELEGRAM_CHANNEL_ID, outgoing=True))
+            async def handle_message(event):
+                await self._handle_new_message(event)
+            logger.info("📝 Listening to YOUR outgoing messages in Saved Messages")
+        else:
+            @self.client.on(events.NewMessage(chats=Config.TELEGRAM_CHANNEL_ID))
+            async def handle_message(event):
+                await self._handle_new_message(event)
+            logger.info("📝 Listening to incoming messages in channel")
         
         self.is_running = True
         logger.success("Trading agent is now active!")
