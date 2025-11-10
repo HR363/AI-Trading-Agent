@@ -1,17 +1,18 @@
 import re
 import json
 from typing import Optional
-from openai import OpenAI
 from loguru import logger
 
 from config.models import TradingSignal, SignalType, OrderSide
 from config.config import Config
+from utils.ai_client import get_ai_client
 
 class SignalParser:
     """Parse trading signals from Telegram messages using AI"""
     
     def __init__(self):
-        self.client = OpenAI(api_key=Config.OPENAI_API_KEY)
+        # AI client (OpenAI or Gemini) - lazy singleton
+        self.client = get_ai_client()
         
         self.system_prompt = """You are an expert trading signal parser. Your job is to extract structured trading information from informal trading messages.
 
@@ -51,17 +52,13 @@ Rules:
         try:
             logger.info(f"Parsing message: {message[:100]}...")
             
-            response = self.client.chat.completions.create(
-                model=Config.OPENAI_MODEL,
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": message}
-                ],
-                temperature=0.1,
-                max_tokens=500
-            )
-            
-            result = response.choices[0].message.content.strip()
+            # Use unified AI client (supports OpenAI and Gemini)
+            messages = [
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": message}
+            ]
+
+            result = await self.client.chat(messages, model=None, temperature=0.1, max_tokens=500)
             
             # Clean up response if it has markdown formatting
             result = result.replace("```json", "").replace("```", "").strip()

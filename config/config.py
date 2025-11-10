@@ -14,8 +14,17 @@ class Config:
     TELEGRAM_CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID")
     
     # OpenAI Configuration
+    # AI Provider Configuration
+    # Set AI_PROVIDER to 'openai' or 'gemini'
+    AI_PROVIDER = os.getenv("AI_PROVIDER", "openai").lower()
+
+    # OpenAI Configuration
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4-turbo-preview")
+
+    # Gemini (Google) Configuration
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "chat-bison@001")
     
     # Trading Configuration
     TRADING_MODE = os.getenv("TRADING_MODE", "paper").lower()
@@ -30,6 +39,12 @@ class Config:
     BINANCE_API_KEY = os.getenv("BINANCE_API_KEY")
     BINANCE_SECRET_KEY = os.getenv("BINANCE_SECRET_KEY")
     BINANCE_TESTNET = os.getenv("BINANCE_TESTNET", "true").lower() == "true"
+    
+    # MT5 Configuration
+    MT5_ACCOUNT = os.getenv("MT5_ACCOUNT")
+    MT5_PASSWORD = os.getenv("MT5_PASSWORD")
+    MT5_SERVER = os.getenv("MT5_SERVER")
+    MT5_PATH = os.getenv("MT5_PATH", "C:\\Program Files\\MetaTrader 5\\terminal64.exe")
     
     # Risk Management
     DEFAULT_POSITION_SIZE_PERCENT = float(os.getenv("DEFAULT_POSITION_SIZE_PERCENT", "2"))
@@ -52,6 +67,8 @@ class Config:
             required_fields["Alpaca"] = [cls.ALPACA_API_KEY, cls.ALPACA_SECRET_KEY]
         elif cls.BROKER == "binance":
             required_fields["Binance"] = [cls.BINANCE_API_KEY, cls.BINANCE_SECRET_KEY]
+        elif cls.BROKER == "mt5":
+            required_fields["MT5"] = [cls.MT5_ACCOUNT, cls.MT5_PASSWORD, cls.MT5_SERVER]
         
         missing = []
         for service, fields in required_fields.items():
